@@ -325,7 +325,7 @@ function App() {
     }
   }
 
-  if (!isConfigured) return h(LocalDemoApp);
+  if (!isConfigured) return h(SetupScreen);
   if (loading) return h("main", { className: "app-shell" }, h("div", { className: "loading-card" }, "Loading PulsePal..."));
   if (!session) return h(AuthShell, { authMode, setAuthMode, signUp, login, toast });
 
