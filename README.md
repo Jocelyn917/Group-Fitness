@@ -1,6 +1,6 @@
 # Group Fitness / PulsePal
 
-PulsePal is now a multi-user-style social fitness app. It works immediately in local demo mode without Supabase, and can be upgraded to real cloud sync with Supabase. Users can sign up, create goals, track completions, view a social feed, like and comment on goals, manage friends, receive notifications, earn badges, and maintain streaks.
+PulsePal is now a multi-user social fitness app backed by Supabase. Users can sign up, create goals, track completions, view a social feed, like and comment on goals, manage friends, receive notifications, earn badges, and maintain streaks.
 
 ## What is included
 
@@ -13,12 +13,6 @@ PulsePal is now a multi-user-style social fitness app. It works immediately in l
 - Profile page with stats, streak, badges, and friend count
 - Notification center with read/unread state
 - Weekly completion chart, current streak, recent activity, and dark mode
-
-## Running without Supabase
-
-No setup is required. Leave `src/supabase-config.js` as-is and open the app. Sign up/login will work in local demo mode, with accounts and goals saved in the current browser.
-
-Local mode is great for demos, but it is not a real shared database across devices or classmates. For real multi-user sync, use Supabase below.
 
 ## Supabase setup
 
