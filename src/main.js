@@ -325,7 +325,7 @@ function App() {
     }
   }
 
-  if (!isConfigured) return h(SetupScreen);
+  if (!isConfigured) return h(LocalDemoApp);
   if (loading) return h("main", { className: "app-shell" }, h("div", { className: "loading-card" }, "Loading PulsePal..."));
   if (!session) return h(AuthShell, { authMode, setAuthMode, signUp, login, toast });
 
@@ -342,6 +342,159 @@ function App() {
     tab === "profile" ? h(ProfilePage, { profile, goals, badges, friends, streak }) : null,
     tab === "notifications" ? h(NotificationsPage, { notifications, markNotificationRead }) : null,
     goalModalOpen ? h(GoalModal, { goal: editingGoal, onClose: () => { setGoalModalOpen(false); setEditingGoal(null); }, onSave: saveGoal }) : null
+  );
+}
+
+
+const LOCAL_USERS_KEY = "pulsepal-local-users";
+const LOCAL_SESSION_KEY = "pulsepal-local-session";
+const LOCAL_GOALS_KEY = "pulsepal-local-goals";
+const LOCAL_NOTIFICATIONS_KEY = "pulsepal-local-notifications";
+
+function readLocal(key, fallback) {
+  try {
+    const value = localStorage.getItem(key);
+    return value ? JSON.parse(value) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocal(key, value) {
+  localStorage.setItem(key, JSON.stringify(value));
+}
+
+function LocalDemoApp() {
+  const [users, setUsers] = useState(() => readLocal(LOCAL_USERS_KEY, []));
+  const [sessionUserId, setSessionUserId] = useState(() => readLocal(LOCAL_SESSION_KEY, null));
+  const [goals, setGoals] = useState(() => readLocal(LOCAL_GOALS_KEY, []));
+  const [notifications, setNotifications] = useState(() => readLocal(LOCAL_NOTIFICATIONS_KEY, []));
+  const [authMode, setAuthMode] = useState("landing");
+  const [tab, setTab] = useState("dashboard");
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [editingGoal, setEditingGoal] = useState(null);
+  const [toast, setToast] = useState("");
+  const [darkMode, setDarkMode] = useState(false);
+
+  const user = users.find((item) => item.id === sessionUserId) || null;
+  const profile = user ? { id: user.id, display_name: user.displayName, email: user.email, bio: user.bio || "Local demo account" } : null;
+
+  useEffect(() => writeLocal(LOCAL_USERS_KEY, users), [users]);
+  useEffect(() => writeLocal(LOCAL_SESSION_KEY, sessionUserId), [sessionUserId]);
+  useEffect(() => writeLocal(LOCAL_GOALS_KEY, goals), [goals]);
+  useEffect(() => writeLocal(LOCAL_NOTIFICATIONS_KEY, notifications), [notifications]);
+  useEffect(() => document.body.classList.toggle("dark", darkMode), [darkMode]);
+
+  function signUp(form) {
+    if (form.password !== form.confirmPassword) return setToast("Passwords do not match.");
+    if (users.some((item) => item.email.toLowerCase() === form.email.toLowerCase())) return setToast("That email already has an account.");
+    const nextUser = { id: crypto.randomUUID(), displayName: form.displayName.trim() || form.email.split("@")[0], email: form.email.trim(), password: form.password, createdAt: new Date().toISOString() };
+    setUsers((current) => [...current, nextUser]);
+    setSessionUserId(nextUser.id);
+    setToast("Account created. You are logged in.");
+  }
+
+  function login(form) {
+    const found = users.find((item) => item.email.toLowerCase() === form.email.toLowerCase() && item.password === form.password);
+    if (!found) return setToast("Email or password is incorrect.");
+    setSessionUserId(found.id);
+    setToast("Welcome back.");
+  }
+
+  function logout() {
+    setSessionUserId(null);
+    setTab("dashboard");
+  }
+
+  function saveGoal(form) {
+    if (!form.title.trim()) return setToast("Goal title is required.");
+    if (editingGoal) {
+      setGoals((current) => current.map((goal) => goal.id === editingGoal.id && goal.owner_id === user.id ? { ...goal, title: form.title.trim(), description: form.description.trim(), category: form.category, visibility: form.visibility } : goal));
+    } else {
+      setGoals((current) => [{ id: crypto.randomUUID(), owner_id: user.id, title: form.title.trim(), description: form.description.trim(), category: form.category, visibility: form.visibility, progress_type: "checkbox", completed: false, created_at: new Date().toISOString(), completed_at: null }, ...current]);
+      setNotifications((current) => [{ id: crypto.randomUUID(), user_id: user.id, type: "badge", read: false, created_at: new Date().toISOString(), local_text: "Badge earned: First Goal" }, ...current]);
+    }
+    setGoalModalOpen(false);
+    setEditingGoal(null);
+  }
+
+  function completeGoal(goal) {
+    if (goal.owner_id !== user.id) return;
+    setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, completed: true, completed_at: new Date().toISOString() } : item));
+    setNotifications((current) => [{ id: crypto.randomUUID(), user_id: user.id, type: "badge", read: false, created_at: new Date().toISOString(), local_text: "Badge earned: First Completion" }, ...current]);
+    setToast("Goal completed. Nice work.");
+  }
+
+  function deleteGoal(goal) {
+    setGoals((current) => current.filter((item) => !(item.id === goal.id && item.owner_id === user.id)));
+  }
+
+  function markNotificationRead(notification) {
+    setNotifications((current) => current.map((item) => item.id === notification.id ? { ...item, read: true } : item));
+  }
+
+  function toggleLike(goal) {
+    if (goal.owner_id === user.id) return setToast("You cannot like your own goal.");
+    setGoals((current) => current.map((item) => {
+      if (item.id !== goal.id) return item;
+      const likedBy = item.likedBy || [];
+      const hasLiked = likedBy.includes(user.id);
+      return { ...item, likedBy: hasLiked ? likedBy.filter((id) => id !== user.id) : [...likedBy, user.id] };
+    }));
+  }
+
+  function addComment(goal, comment) {
+    if (!comment.trim()) return;
+    setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, comments: [{ id: crypto.randomUUID(), user_id: user.id, comment: comment.trim(), created_at: new Date().toISOString(), profiles: { display_name: user.displayName } }, ...(item.comments || [])] } : item));
+  }
+
+  function deleteComment(comment, goal) {
+    setGoals((current) => current.map((item) => item.id === goal.id ? { ...item, comments: (item.comments || []).filter((entry) => entry.id !== comment.id || (comment.user_id !== user.id && goal.owner_id !== user.id)) } : item));
+  }
+
+  function localFeedGoals() {
+    return goals
+      .filter((goal) => goal.visibility === "public" || goal.owner_id === user.id)
+      .map((goal) => {
+        const owner = users.find((item) => item.id === goal.owner_id);
+        return { ...goal, owner_name: owner?.displayName || "Fitness friend", like_count: (goal.likedBy || []).length, comment_count: (goal.comments || []).length, viewer_liked: (goal.likedBy || []).includes(user.id) };
+      });
+  }
+
+  if (!user) return h(AuthShell, { authMode, setAuthMode, signUp, login, toast });
+
+  const myGoals = goals.filter((goal) => goal.owner_id === user.id);
+  const completed = myGoals.filter((goal) => goal.completed);
+  const feedGoals = localFeedGoals();
+  const commentsByGoal = Object.fromEntries(feedGoals.map((goal) => [goal.id, goal.comments || []]));
+  const unreadCount = notifications.filter((item) => !item.read && item.user_id === user.id).length;
+  const localBadges = notifications.filter((item) => item.type === "badge" && item.user_id === user.id).map((item) => ({ id: item.id, badges: { name: item.local_text?.replace("Badge earned: ", "") || "Local Badge", description: "Earned in local demo mode" } }));
+
+  return h("main", { className: "app-shell" },
+    toast ? h("div", { className: "toast", onAnimationEnd: () => setToast("") }, toast) : null,
+    h("div", { className: "local-mode-banner" }, "Local demo mode: sign up/login works without Supabase. Data is saved in this browser only."),
+    h(Header, { profile, logout, tab, setTab, unreadCount, darkMode, setDarkMode }),
+    tab === "dashboard" ? h(Dashboard, { goals: myGoals, completed, streak: getCurrentStreak(myGoals), setGoalModalOpen, setEditingGoal, completeGoal, deleteGoal, feedGoals }) : null,
+    tab === "feed" ? h(Feed, { feedGoals, commentsByGoal, loadComments: async () => {}, addComment, deleteComment, toggleLike, userId: user.id }) : null,
+    tab === "friends" ? h(LocalFriendsPage, { users, currentUser: user }) : null,
+    tab === "profile" ? h(ProfilePage, { profile, goals: myGoals, badges: localBadges, friends: [], streak: getCurrentStreak(myGoals) }) : null,
+    tab === "notifications" ? h(NotificationsPage, { notifications: notifications.filter((item) => item.user_id === user.id), markNotificationRead }) : null,
+    goalModalOpen ? h(GoalModal, { goal: editingGoal, onClose: () => { setGoalModalOpen(false); setEditingGoal(null); }, onSave: saveGoal }) : null
+  );
+}
+
+function LocalFriendsPage({ users, currentUser }) {
+  const [query, setQuery] = useState("");
+  const matches = users.filter((item) => item.id !== currentUser.id && item.displayName.toLowerCase().includes(query.toLowerCase()));
+  return h("section", { className: "page-grid" },
+    h("div", { className: "panel" },
+      h("p", { className: "eyebrow" }, "Friends"),
+      h("h2", null, "Local user search"),
+      h("label", { className: "search-box" }, h(Search, { size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search local demo users" })),
+      matches.length ? matches.map((profile) => h("article", { className: "user-row", key: profile.id }, h("div", { className: "avatar" }, profile.displayName.slice(0, 1)), h("div", null, h("strong", null, profile.displayName), h("span", null, profile.email)), h("button", { disabled: true }, "Demo only"))) : h("p", { className: "muted" }, "Create another local account to see users here.")
+    ),
+    h("div", { className: "panel" }, h("h2", null, "Friend requests"), h("p", { className: "muted" }, "Friend requests need the Supabase backend to sync between real accounts.")),
+    h("div", { className: "panel" }, h("h2", null, "Friend list"), h("p", { className: "muted" }, "Local mode keeps the interface ready, but real friend status is cloud-backed."))
   );
 }
 
