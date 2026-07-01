@@ -169,12 +169,14 @@ function App() {
     const { data: profileRows } = await supabase.from("profiles").select("*").neq("id", session.user.id).order("display_name");
     const { data: friendshipRows } = await supabase
       .from("friendships")
-      .select("requester_id, receiver_id")
+      .select("requester_id, receiver_id, status")
       .or("requester_id.eq." + session.user.id + ",receiver_id.eq." + session.user.id);
-    const relatedUserIds = new Set(
-      (friendshipRows || []).map((item) => (item.requester_id === session.user.id ? item.receiver_id : item.requester_id))
+    const hiddenUserIds = new Set(
+      (friendshipRows || [])
+        .filter((item) => !(item.status === "pending" && item.requester_id === session.user.id))
+        .map((item) => (item.requester_id === session.user.id ? item.receiver_id : item.requester_id))
     );
-    setProfiles((profileRows || []).filter((profile) => !relatedUserIds.has(profile.id)));
+    setProfiles((profileRows || []).filter((profile) => !hiddenUserIds.has(profile.id)));
   }
 
   async function loadFriends() {
@@ -619,18 +621,18 @@ function FeedGoal({ goal, comments, loadComments, addComment, deleteComment, tog
 
 function FriendsPage({ profiles, friends, userId, sendFriendRequest, updateFriendship, removeFriend }) {
   const [query, setQuery] = useState("");
-  const relationshipUserIds = new Set(
-    friends.map((item) => (item.requester_id === userId ? item.receiver_id : item.requester_id))
+  const relationshipByUserId = new Map(
+    friends.map((item) => [item.requester_id === userId ? item.receiver_id : item.requester_id, item])
   );
-  const filtered = profiles.filter(
-    (profile) =>
-      !relationshipUserIds.has(profile.id) &&
-      profile.display_name?.toLowerCase().includes(query.toLowerCase())
-  );
+  const filtered = profiles.filter((profile) => {
+    const relationship = relationshipByUserId.get(profile.id);
+    const isOutgoingPending = relationship?.status === "pending" && relationship.requester_id === userId;
+    return (!relationship || isOutgoingPending) && profile.display_name?.toLowerCase().includes(query.toLowerCase());
+  });
   const accepted = friends.filter((item) => item.status === "accepted");
   const incoming = friends.filter((item) => item.status === "pending" && item.receiver_id === userId);
   return h("section", { className: "page-grid" },
-    h("div", { className: "panel" }, h("p", { className: "eyebrow" }, "Friends"), h("h2", null, "Find your people"), h("label", { className: "search-box" }, h(Search, { size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search display names" })), filtered.length ? filtered.map((profile) => h("article", { className: "user-row", key: profile.id }, h("div", { className: "avatar" }, profile.display_name?.slice(0, 1)), h("div", null, h("strong", null, profile.display_name), h("span", null, profile.bio || "PulsePal member")), h("button", { onClick: () => sendFriendRequest(profile.id) }, h(UserPlus, { size: 16 }), "Add"))) : h("p", { className: "muted" }, "No new people match your search.")),
+    h("div", { className: "panel" }, h("p", { className: "eyebrow" }, "Friends"), h("h2", null, "Find your people"), h("label", { className: "search-box" }, h(Search, { size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search display names" })), filtered.length ? filtered.map((profile) => { const relationship = relationshipByUserId.get(profile.id); const isOutgoingPending = relationship?.status === "pending" && relationship.requester_id === userId; return h("article", { className: "user-row", key: profile.id }, h("div", { className: "avatar" }, profile.display_name?.slice(0, 1)), h("div", null, h("strong", null, profile.display_name), h("span", null, profile.bio || "PulsePal member")), h("button", { disabled: isOutgoingPending, onClick: () => sendFriendRequest(profile.id) }, h(UserPlus, { size: 16 }), isOutgoingPending ? "Request sent" : "Add")); }) : h("p", { className: "muted" }, "No new people match your search.")),
     h("div", { className: "panel" }, h("h2", null, "Requests"), incoming.length ? incoming.map((item) => h("article", { className: "user-row", key: item.id }, h("div", null, h("strong", null, item.requester?.display_name)), h("button", { onClick: () => updateFriendship(item, "accepted") }, "Accept"), h("button", { onClick: () => updateFriendship(item, "declined") }, "Decline"))) : h("p", { className: "muted" }, "No pending requests.")),
     h("div", { className: "panel" }, h("h2", null, "Friend list"), accepted.length ? accepted.map((item) => { const friend = item.requester_id === userId ? item.receiver : item.requester; return h("article", { className: "user-row", key: item.id }, h("div", { className: "avatar" }, friend?.display_name?.slice(0, 1)), h("strong", null, friend?.display_name), h("button", { onClick: () => removeFriend(item) }, "Remove")); }) : h("p", { className: "muted" }, "Accepted friends will show here."))
   );
