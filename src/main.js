@@ -166,8 +166,15 @@ function App() {
   }
 
   async function loadProfiles() {
-    const { data } = await supabase.from("profiles").select("*").neq("id", session.user.id).order("display_name");
-    setProfiles(data || []);
+    const { data: profileRows } = await supabase.from("profiles").select("*").neq("id", session.user.id).order("display_name");
+    const { data: friendshipRows } = await supabase
+      .from("friendships")
+      .select("requester_id, receiver_id")
+      .or("requester_id.eq." + session.user.id + ",receiver_id.eq." + session.user.id);
+    const relatedUserIds = new Set(
+      (friendshipRows || []).map((item) => (item.requester_id === session.user.id ? item.receiver_id : item.requester_id))
+    );
+    setProfiles((profileRows || []).filter((profile) => !relatedUserIds.has(profile.id)));
   }
 
   async function loadFriends() {
@@ -275,18 +282,18 @@ function App() {
   async function sendFriendRequest(receiverId) {
     await supabase.from("friendships").insert({ requester_id: session.user.id, receiver_id: receiverId, status: "pending" });
     await notify(receiverId, "friend_request", null);
-    await loadFriends();
+    await loadEverything();
   }
 
   async function updateFriendship(friendship, status) {
     await supabase.from("friendships").update({ status }).eq("id", friendship.id);
     if (status === "accepted") await notify(friendship.requester_id, "friend_accepted", null);
-    await Promise.all([loadFriends(), loadNotifications()]);
+    await loadEverything();
   }
 
   async function removeFriend(friendship) {
     await supabase.from("friendships").delete().eq("id", friendship.id);
-    await loadFriends();
+    await loadEverything();
   }
 
   async function notify(userId, type, goalId) {
