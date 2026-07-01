@@ -612,12 +612,18 @@ function FeedGoal({ goal, comments, loadComments, addComment, deleteComment, tog
 
 function FriendsPage({ profiles, friends, userId, sendFriendRequest, updateFriendship, removeFriend }) {
   const [query, setQuery] = useState("");
-  const filtered = profiles.filter((profile) => profile.display_name?.toLowerCase().includes(query.toLowerCase()));
+  const relationshipUserIds = new Set(
+    friends.map((item) => (item.requester_id === userId ? item.receiver_id : item.requester_id))
+  );
+  const filtered = profiles.filter(
+    (profile) =>
+      !relationshipUserIds.has(profile.id) &&
+      profile.display_name?.toLowerCase().includes(query.toLowerCase())
+  );
   const accepted = friends.filter((item) => item.status === "accepted");
   const incoming = friends.filter((item) => item.status === "pending" && item.receiver_id === userId);
-  const outgoingIds = new Set(friends.filter((item) => item.requester_id === userId).map((item) => item.receiver_id));
   return h("section", { className: "page-grid" },
-    h("div", { className: "panel" }, h("p", { className: "eyebrow" }, "Friends"), h("h2", null, "Find your people"), h("label", { className: "search-box" }, h(Search, { size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search display names" })), filtered.map((profile) => h("article", { className: "user-row", key: profile.id }, h("div", { className: "avatar" }, profile.display_name?.slice(0, 1)), h("div", null, h("strong", null, profile.display_name), h("span", null, profile.bio || "PulsePal member")), h("button", { disabled: outgoingIds.has(profile.id), onClick: () => sendFriendRequest(profile.id) }, h(UserPlus, { size: 16 }), outgoingIds.has(profile.id) ? "Requested" : "Add")))),
+    h("div", { className: "panel" }, h("p", { className: "eyebrow" }, "Friends"), h("h2", null, "Find your people"), h("label", { className: "search-box" }, h(Search, { size: 17 }), h("input", { value: query, onChange: (event) => setQuery(event.target.value), placeholder: "Search display names" })), filtered.length ? filtered.map((profile) => h("article", { className: "user-row", key: profile.id }, h("div", { className: "avatar" }, profile.display_name?.slice(0, 1)), h("div", null, h("strong", null, profile.display_name), h("span", null, profile.bio || "PulsePal member")), h("button", { onClick: () => sendFriendRequest(profile.id) }, h(UserPlus, { size: 16 }), "Add"))) : h("p", { className: "muted" }, "No new people match your search.")),
     h("div", { className: "panel" }, h("h2", null, "Requests"), incoming.length ? incoming.map((item) => h("article", { className: "user-row", key: item.id }, h("div", null, h("strong", null, item.requester?.display_name)), h("button", { onClick: () => updateFriendship(item, "accepted") }, "Accept"), h("button", { onClick: () => updateFriendship(item, "declined") }, "Decline"))) : h("p", { className: "muted" }, "No pending requests.")),
     h("div", { className: "panel" }, h("h2", null, "Friend list"), accepted.length ? accepted.map((item) => { const friend = item.requester_id === userId ? item.receiver : item.requester; return h("article", { className: "user-row", key: item.id }, h("div", { className: "avatar" }, friend?.display_name?.slice(0, 1)), h("strong", null, friend?.display_name), h("button", { onClick: () => removeFriend(item) }, "Remove")); }) : h("p", { className: "muted" }, "Accepted friends will show here."))
   );
