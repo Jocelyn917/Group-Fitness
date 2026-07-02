@@ -23,6 +23,7 @@ button:disabled { cursor: not-allowed; opacity: 0.55; }
 }
 .hero { grid-template-columns: 1fr auto; margin-bottom: 20px; }
 .dashboard-hero { margin-top: 16px; }
+.compete-hero { background-image: linear-gradient(105deg, rgba(31, 49, 38, 0.94), rgba(44, 122, 93, 0.62)), url("https://images.unsplash.com/photo-1518611012118-696072aa579a?auto=format&fit=crop&w=1600&q=80"); }
 .setup-hero { min-height: 360px; }
 .landing { min-height: 640px; }
 
@@ -61,11 +62,11 @@ body.dark .app-nav button.active { color: #17211c; background: #8df0b5; }
 .primary-action, .save-button { padding: 10px 14px; color: white; background: #ef6f46; box-shadow: 0 10px 22px rgba(239,111,70,0.2); }
 .link-button { border: 0; color: #2c7a5d; background: transparent; font-weight: 800; }
 
-.dashboard-grid, .page-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; align-items: start; }
+.dashboard-grid, .page-grid, .compete-grid { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 22px; align-items: start; }
 .page-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .main-column, .side-column, .profile-page { display: grid; gap: 16px; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 14px; }
-.panel, .goal-card, .completed-panel, .stat, .post-card, .auth-card, .empty-state, .goal-modal { border: 1px solid #dde3d5; border-radius: 12px; background: white; box-shadow: 0 18px 35px rgba(53,62,54,0.08); }
+.panel, .goal-card, .completed-panel, .stat, .post-card, .auth-card, .empty-state, .goal-modal, .challenge-card { border: 1px solid #dde3d5; border-radius: 12px; background: white; box-shadow: 0 18px 35px rgba(53,62,54,0.08); }
 .panel, .completed-panel, .auth-card, .goal-modal { padding: 18px; }
 .auth-card { display: grid; gap: 14px; }
 .form-message { padding: 10px; border-radius: 10px; color: #245f49; background: #e5f7ec; }
@@ -111,9 +112,35 @@ body.dark .completed-item, body.dark .activity-item, body.dark .user-row, body.d
 .reaction-row button { min-width: 72px; padding: 8px 12px; color: #334239; background: #f0f3eb; }
 .reaction-row button.liked { color: white; background: #ef6f46; animation: likePop 220ms ease both; }
 .pill { display: inline-flex; align-items: center; min-height: 32px; padding: 6px 10px; border-radius: 999px; color: #245f49; background: #e5f7ec; font-weight: 800; }
+.points-pill { color: #7a341f; background: #fff0e7; }
 .comments { display: grid; gap: 10px; padding-top: 8px; border-top: 1px solid #e3eadc; }
 .comments form { display: grid; grid-template-columns: 1fr auto; gap: 8px; }
 .comments button { min-width: 40px; color: #245f49; background: #e5f7ec; }
+
+.compete-page { display: grid; gap: 18px; }
+.challenge-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.challenge-card { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; padding: 16px; animation: panelIn 220ms ease both; }
+.challenge-card h3 { margin-bottom: 5px; }
+.challenge-card p { color: #5c695f; }
+.challenge-card button { grid-column: 1 / -1; min-height: 40px; border: 0; border-radius: 10px; color: white; background: #2c7a5d; font-weight: 800; }
+.challenge-card button:disabled { color: #516056; background: #e5ebe2; }
+.challenge-points { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 14px; color: white; background: #ef6f46; font-size: 1.2rem; font-weight: 900; }
+.challenge-points span { font-size: 0.7rem; text-transform: uppercase; }
+.challenge-goal { grid-template-columns: auto 1fr auto; }
+.leaderboard-top, .segmented, .leader-row { display: flex; align-items: center; gap: 8px; }
+.leaderboard-top { justify-content: space-between; margin-bottom: 12px; }
+.segmented { padding: 4px; border-radius: 10px; background: #eef2ea; }
+.segmented button { min-height: 34px; border: 0; border-radius: 8px; padding: 7px 10px; color: #516056; background: transparent; font-weight: 800; }
+.segmented button.active { color: white; background: #17211c; }
+.leaderboard-list { display: grid; gap: 10px; }
+.leader-row { justify-content: space-between; padding: 12px; border-radius: 10px; background: #f7faf4; }
+.leader-row div { display: grid; min-width: 0; }
+.leader-row span:not(.rank) { color: #7b867c; font-size: 0.88rem; }
+.rank { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 50%; color: white; background: #2c7a5d; font-weight: 900; }
+body.dark .challenge-card, body.dark .leader-row { color: #eef8f0; border-color: #2b3a31; background: #17211c; }
+body.dark .challenge-card p, body.dark .leader-row span:not(.rank) { color: #aebbae; }
+body.dark .segmented, body.dark .challenge-card button:disabled { background: #101713; }
+body.dark .segmented button.active { color: #17211c; background: #8df0b5; }
 
 .empty-state { display: grid; justify-items: center; padding: 38px 20px; text-align: center; }
 .empty-state svg { color: #ef6f46; }
@@ -149,7 +176,7 @@ body.dark .suggestions button:hover { background: #20342a; }
 @keyframes toastIn { 0%, 100% { opacity: 0; transform: translateY(12px); } 10%, 90% { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 980px) {
-  .topbar, .hero, .dashboard-grid, .page-grid, .auth-shell { grid-template-columns: 1fr; }
+  .topbar, .hero, .dashboard-grid, .page-grid, .compete-grid, .auth-shell { grid-template-columns: 1fr; }
   .app-nav { justify-content: start; }
   .hero-stats { width: 100%; }
   .profile-page .mini-stats { grid-template-columns: repeat(2, 1fr); }
@@ -161,6 +188,6 @@ body.dark .suggestions button:hover { background: #20342a; }
   h1 { font-size: 2.55rem; }
   .section-heading, .field-row { align-items: stretch; grid-template-columns: 1fr; flex-direction: column; }
   .primary-action, .save-button, .secondary-action { width: 100%; }
-  .suggestions, .mini-stats, .goal-card, .completed-item, .comments form, .user-row, .notification { grid-template-columns: 1fr; }
+  .suggestions, .mini-stats, .goal-card, .challenge-grid, .challenge-card, .completed-item, .comments form, .user-row, .notification { grid-template-columns: 1fr; }
   .topbar-actions { justify-content: space-between; }
 }
