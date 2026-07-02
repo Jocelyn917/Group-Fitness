@@ -19,7 +19,7 @@ PulsePal is now a multi-user social fitness app backed by Supabase. Users can si
 
 1. Create a Supabase project.
 2. Open the Supabase SQL editor and run the contents of `supabase-schema.sql`.
-   - Existing projects should rerun the SQL once to add the Compete challenge columns and refresh the feed view.
+   - Existing projects should run `supabase-compete-upgrade.sql` once to add the Compete challenge columns and refresh the feed view.
 3. Copy `src/supabase-config.js` and replace the placeholders with your project URL and anon key:
 
 ```js
