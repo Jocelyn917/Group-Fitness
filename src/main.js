@@ -61,6 +61,14 @@ function getGoalSuggestions() {
 
 const categories = ["Fitness", "Hydration", "Sleep", "Nutrition", "Recovery", "Mindfulness"];
 const visibilityOptions = ["public", "friends", "private"];
+const challenges = [
+  { key: "plank-1-min", title: "Plank for 1 minute", description: "Hold steady and log the win when you finish.", points: 20, category: "Fitness" },
+  { key: "run-1km", title: "Run 1 km", description: "A quick cardio burst for the leaderboard.", points: 35, category: "Fitness" },
+  { key: "walk-20-min", title: "Walk for 20 minutes", description: "Get outside or pace it out anywhere.", points: 25, category: "Recovery" },
+  { key: "pushups-25", title: "Do 25 pushups", description: "Break them into sets if you want.", points: 30, category: "Fitness" },
+  { key: "stretch-15-min", title: "Stretch for 15 minutes", description: "Mobility counts too.", points: 20, category: "Recovery" },
+  { key: "water-2l", title: "Drink 2L of water", description: "Hydration points are very real points.", points: 15, category: "Hydration" }
+];
 
 function formatTime(value) {
   if (!value) return "Not completed";
@@ -80,6 +88,43 @@ function getCurrentStreak(goals) {
     cursor.setDate(cursor.getDate() - 1);
   }
   return streak;
+}
+
+function periodStart(period) {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  if (period === "month") {
+    date.setDate(1);
+    return date;
+  }
+  const day = date.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  date.setDate(date.getDate() - diff);
+  return date;
+}
+
+function friendUserIds(friends, userId) {
+  return new Set([
+    userId,
+    ...friends
+      .filter((item) => item.status === "accepted")
+      .map((item) => (item.requester_id === userId ? item.receiver_id : item.requester_id))
+  ]);
+}
+
+function buildChallengeLeaderboard(goals, friends, userId, period) {
+  const allowed = friendUserIds(friends, userId);
+  const start = periodStart(period);
+  const rows = new Map();
+  goals
+    .filter((goal) => goal.completed_at && (goal.challenge_points || 0) > 0 && allowed.has(goal.owner_id) && new Date(goal.completed_at) >= start)
+    .forEach((goal) => {
+      const current = rows.get(goal.owner_id) || { userId: goal.owner_id, name: goal.owner_name || "Fitness friend", points: 0, completed: 0 };
+      current.points += goal.challenge_points || 0;
+      current.completed += 1;
+      rows.set(goal.owner_id, current);
+    });
+  return [...rows.values()].sort((a, b) => b.points - a.points || b.completed - a.completed || a.name.localeCompare(b.name));
 }
 
 function groupGoalsByOwner(goals) {
@@ -245,6 +290,25 @@ function App() {
     await loadEverything();
   }
 
+  async function startChallenge(challenge) {
+    const existing = goals.find((goal) => goal.challenge_key === challenge.key && !goal.completed);
+    if (existing) return setToast("That challenge is already waiting on your dashboard.");
+    const { error } = await supabase.from("goals").insert({
+      owner_id: session.user.id,
+      title: challenge.title,
+      description: challenge.description,
+      category: challenge.category,
+      visibility: "public",
+      progress_type: "checkbox",
+      challenge_key: challenge.key,
+      challenge_label: challenge.title,
+      challenge_points: challenge.points
+    });
+    if (error) return setToast("Run the latest supabase-schema.sql first, then try the challenge again.");
+    setToast("Challenge added as a public goal.");
+    await loadEverything();
+  }
+
   async function deleteGoal(goal) {
     if (goal.owner_id !== session.user.id) return;
     await supabase.from("goals").delete().eq("id", goal.id).eq("owner_id", session.user.id);
@@ -351,6 +415,7 @@ function App() {
     h(Header, { profile, logout, tab, setTab, unreadCount, darkMode, setDarkMode }),
     tab === "dashboard" ? h(Dashboard, { goals, completed, streak, setGoalModalOpen, setEditingGoal, completeGoal, deleteGoal, feedGoals }) : null,
     tab === "feed" ? h(Feed, { feedGoals, commentsByGoal, loadComments, addComment, deleteComment, toggleLike, userId: session.user.id }) : null,
+    tab === "compete" ? h(CompetePage, { goals, feedGoals, friends, userId: session.user.id, startChallenge, completeGoal }) : null,
     tab === "friends" ? h(FriendsPage, { profiles, friends, userId: session.user.id, sendFriendRequest, updateFriendship, removeFriend }) : null,
     tab === "profile" ? h(ProfilePage, { profile, goals, badges, friends, streak }) : null,
     tab === "notifications" ? h(NotificationsPage, { notifications, markNotificationRead }) : null,
@@ -438,6 +503,26 @@ function LocalDemoApp() {
     setToast("Goal completed. Nice work.");
   }
 
+  function startChallenge(challenge) {
+    if (myGoals.some((goal) => goal.challenge_key === challenge.key && !goal.completed)) return setToast("That challenge is already waiting on your dashboard.");
+    setGoals((current) => [{
+      id: crypto.randomUUID(),
+      owner_id: user.id,
+      title: challenge.title,
+      description: challenge.description,
+      category: challenge.category,
+      visibility: "public",
+      progress_type: "checkbox",
+      challenge_key: challenge.key,
+      challenge_label: challenge.title,
+      challenge_points: challenge.points,
+      completed: false,
+      created_at: new Date().toISOString(),
+      completed_at: null
+    }, ...current]);
+    setToast("Challenge added as a public goal.");
+  }
+
   function deleteGoal(goal) {
     setGoals((current) => current.filter((item) => !(item.id === goal.id && item.owner_id === user.id)));
   }
@@ -489,6 +574,7 @@ function LocalDemoApp() {
     h(Header, { profile, logout, tab, setTab, unreadCount, darkMode, setDarkMode }),
     tab === "dashboard" ? h(Dashboard, { goals: myGoals, completed, streak: getCurrentStreak(myGoals), setGoalModalOpen, setEditingGoal, completeGoal, deleteGoal, feedGoals }) : null,
     tab === "feed" ? h(Feed, { feedGoals, commentsByGoal, loadComments: async () => {}, addComment, deleteComment, toggleLike, userId: user.id }) : null,
+    tab === "compete" ? h(CompetePage, { goals: myGoals, feedGoals, friends: [], userId: user.id, startChallenge, completeGoal }) : null,
     tab === "friends" ? h(LocalFriendsPage, { users, currentUser: user }) : null,
     tab === "profile" ? h(ProfilePage, { profile, goals: myGoals, badges: localBadges, friends: [], streak: getCurrentStreak(myGoals) }) : null,
     tab === "notifications" ? h(NotificationsPage, { notifications: notifications.filter((item) => item.user_id === user.id), markNotificationRead }) : null,
@@ -552,7 +638,7 @@ function AuthForm({ mode, setAuthMode, signUp, login, toast }) {
 }
 
 function Header({ profile, logout, tab, setTab, unreadCount, darkMode, setDarkMode }) {
-  const tabs = [["dashboard", HeartPulse], ["feed", MessageCircle], ["friends", Users], ["profile", BadgeCheck], ["notifications", Bell]];
+  const tabs = [["dashboard", HeartPulse], ["feed", MessageCircle], ["compete", Trophy], ["friends", Users], ["profile", BadgeCheck], ["notifications", Bell]];
   return h("header", { className: "topbar" },
     h("div", { className: "brand" }, h("div", { className: "avatar" }, (profile?.display_name || "P").slice(0, 1)), h("div", null, h("strong", null, "PulsePal"), h("span", null, profile?.display_name || "Fitness friend"))),
     h("nav", { className: "app-nav" }, tabs.map(([name, Icon]) => h("button", { key: name, className: tab === name ? "active" : "", onClick: () => setTab(name) }, h(Icon, { size: 17 }), name === "notifications" && unreadCount ? "Notifications (" + unreadCount + ")" : name[0].toUpperCase() + name.slice(1)))),
@@ -589,7 +675,7 @@ function Dashboard({ goals, completed, streak, setGoalModalOpen, setEditingGoal,
 function GoalCard({ goal, own, completeGoal, setEditingGoal, setGoalModalOpen, deleteGoal }) {
   return h("article", { className: "goal-card" },
     own && !goal.completed ? h("button", { className: "done-button", onClick: () => completeGoal(goal), "aria-label": "Mark " + goal.title + " as done" }, h(Check, { size: 20 })) : h("div", { className: "status-dot " + (goal.completed ? "done" : "open") }),
-    h("div", null, h("h3", null, goal.title), goal.description ? h("p", null, goal.description) : null, h("span", null, goal.category + " • " + goal.visibility + " • " + (goal.completed ? "Completed " + formatTime(goal.completed_at) : "Open"))),
+    h("div", null, h("h3", null, goal.title), goal.description ? h("p", null, goal.description) : null, h("span", null, goal.category + " • " + goal.visibility + " • " + (goal.completed ? "Completed " + formatTime(goal.completed_at) : "Open") + ((goal.challenge_points || 0) > 0 ? " • " + goal.challenge_points + " pts" : ""))),
     own ? h("div", { className: "card-actions" }, h("button", { onClick: () => { setEditingGoal(goal); setGoalModalOpen(true); } }, "Edit"), h("button", { onClick: () => deleteGoal(goal) }, "Delete")) : null,
     h("div", { className: "check-burst", "aria-hidden": "true" }, h(Check, { size: 34 }))
   );
@@ -614,12 +700,63 @@ function FeedGoal({ goal, comments, loadComments, addComment, deleteComment, tog
     h("div", { className: "reaction-row" },
       h("button", { className: goal.viewer_liked ? "liked" : "", onClick: () => toggleLike(goal) }, h(Heart, { size: 17 }), goal.like_count || 0),
       h("button", { onClick: async () => { setOpen(!open); if (!open) await loadComments(goal.id); } }, h(MessageCircle, { size: 17 }), goal.comment_count || comments.length),
+      (goal.challenge_points || 0) > 0 ? h("span", { className: "pill points-pill" }, goal.challenge_points + " pts") : null,
       h("span", { className: "pill" }, goal.category)
     ),
     open ? h("div", { className: "comments" },
       h("form", { onSubmit: async (event) => { event.preventDefault(); await addComment(goal, comment); setComment(""); } }, h("input", { value: comment, onChange: (event) => setComment(event.target.value), placeholder: "Write a comment" }), h("button", { type: "submit" }, h(Send, { size: 16 }))),
       comments.map((item) => h("div", { className: "comment", key: item.id }, h("div", null, h("strong", null, item.profiles?.display_name || "User"), h("span", null, item.comment)), (item.user_id === userId || goal.owner_id === userId) ? h("button", { onClick: () => deleteComment(item, goal) }, h(X, { size: 14 })) : null))
     ) : null
+  );
+}
+
+function CompetePage({ goals, feedGoals, friends, userId, startChallenge, completeGoal }) {
+  const [period, setPeriod] = useState("week");
+  const myOpenChallenges = goals.filter((goal) => goal.challenge_key && !goal.completed);
+  const friendIds = friendUserIds(friends, userId);
+  const completedChallengeGoals = feedGoals.filter((goal) => goal.completed_at && (goal.challenge_points || 0) > 0 && friendIds.has(goal.owner_id));
+  const leaderboard = buildChallengeLeaderboard(feedGoals, friends, userId, period);
+  const currentPoints = leaderboard.find((row) => row.userId === userId)?.points || 0;
+  return h("section", { className: "compete-page" },
+    h("section", { className: "hero compete-hero" },
+      h("div", null, h("p", { className: "eyebrow" }, "Compete"), h("h1", null, "Friendly challenges, real points."), h("p", { className: "hero-copy" }, "Pick a public challenge, complete it, and climb weekly or monthly rankings with your friends.")),
+      h("div", { className: "hero-stats" }, h(Trophy), h("div", null, h("strong", null, currentPoints + " pts"), h("span", null, period === "week" ? "this week" : "this month")))
+    ),
+    h("div", { className: "compete-grid" },
+      h("div", { className: "main-column" },
+        h("div", { className: "section-heading" }, h("div", null, h("p", { className: "eyebrow" }, "Challenge board"), h("h2", null, "Choose your next move"))),
+        h("div", { className: "challenge-grid" }, challenges.map((challenge) => {
+          const active = goals.some((goal) => goal.challenge_key === challenge.key && !goal.completed);
+          return h("article", { className: "challenge-card", key: challenge.key },
+            h("div", { className: "challenge-points" }, challenge.points, h("span", null, "pts")),
+            h("div", null, h("h3", null, challenge.title), h("p", null, challenge.description), h("span", { className: "pill" }, challenge.category)),
+            h("button", { disabled: active, onClick: () => startChallenge(challenge) }, active ? "In progress" : "Start")
+          );
+        })),
+        h("div", { className: "panel" },
+          h("div", { className: "section-heading compact" }, h("div", null, h("p", { className: "eyebrow" }, "Your active challenges"), h("h2", null, "Finish for points"))),
+          myOpenChallenges.length ? h("div", { className: "goal-list" }, myOpenChallenges.map((goal) => h(ChallengeGoalCard, { key: goal.id, goal, completeGoal }))) : h("p", { className: "muted" }, "Start a challenge above and it will show here.")
+        )
+      ),
+      h("aside", { className: "side-column" },
+        h("div", { className: "panel" },
+          h("div", { className: "leaderboard-top" }, h("h2", null, "Rankings"), h("div", { className: "segmented" }, h("button", { className: period === "week" ? "active" : "", onClick: () => setPeriod("week") }, "Week"), h("button", { className: period === "month" ? "active" : "", onClick: () => setPeriod("month") }, "Month"))),
+          leaderboard.length ? h("div", { className: "leaderboard-list" }, leaderboard.map((row, index) => h("article", { className: "leader-row", key: row.userId }, h("span", { className: "rank" }, index + 1), h("div", null, h("strong", null, row.name), h("span", null, row.completed + " completed")), h("strong", null, row.points + " pts")))) : h("p", { className: "muted" }, "Complete a challenge to start the rankings.")
+        ),
+        h("div", { className: "panel" },
+          h("h2", null, "Recent points"),
+          completedChallengeGoals.slice(0, 6).map((goal) => h("article", { className: "activity-item", key: goal.id }, h("div", null, h("strong", null, goal.owner_name || "Friend"), h("span", null, goal.challenge_label || goal.title)), h("strong", null, "+" + (goal.challenge_points || 0))))
+        )
+      )
+    )
+  );
+}
+
+function ChallengeGoalCard({ goal, completeGoal }) {
+  return h("article", { className: "goal-card challenge-goal" },
+    h("button", { className: "done-button", onClick: () => completeGoal(goal), "aria-label": "Mark " + goal.title + " as done" }, h(Check, { size: 20 })),
+    h("div", null, h("h3", null, goal.title), h("p", null, goal.description || "Public challenge goal"), h("span", null, (goal.challenge_points || 0) + " points when completed")),
+    h("span", { className: "pill" }, "Public")
   );
 }
 
