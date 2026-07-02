@@ -10,7 +10,7 @@ PulsePal is now a multi-user social fitness app backed by Supabase. Users can si
 - Goal creation modal with category, visibility, suggestions, edit, delete, and completion controls
 - Grouped social feed with like/comment interactions
 - Friends page with search, requests, accept/decline, and remove friend actions
-- Compete page with public challenge goals, point values, and weekly/monthly friend rankings
+- Compete page with public challenge goals, point values, weekly/monthly friend rankings, and Ranked Activities leaderboards
 - Profile page with stats, streak, badges, and friend count
 - Notification center with read/unread state
 - Weekly completion chart, current streak, recent activity, and dark mode
@@ -19,7 +19,7 @@ PulsePal is now a multi-user social fitness app backed by Supabase. Users can si
 
 1. Create a Supabase project.
 2. Open the Supabase SQL editor and run the contents of `supabase-schema.sql`.
-   - Existing projects should run `supabase-compete-upgrade.sql` once to add the Compete challenge columns and refresh the feed view.
+   - Existing projects should run `supabase-compete-upgrade.sql` once to add the Compete challenge columns, Ranked Activities tables, activity result policies, seed activities, and refreshed feed view.
 3. Copy `src/supabase-config.js` and replace the placeholders with your project URL and anon key:
 
 ```js
