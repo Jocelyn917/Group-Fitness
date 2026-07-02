@@ -173,7 +173,7 @@ function App() {
       .or("requester_id.eq." + session.user.id + ",receiver_id.eq." + session.user.id);
     const hiddenUserIds = new Set(
       (friendshipRows || [])
-        .filter((item) => !(item.status === "pending" && item.requester_id === session.user.id))
+        .filter((item) => item.status === "accepted" || (item.status === "pending" && item.receiver_id === session.user.id))
         .map((item) => (item.requester_id === session.user.id ? item.receiver_id : item.requester_id))
     );
     setProfiles((profileRows || []).filter((profile) => !hiddenUserIds.has(profile.id)));
@@ -282,6 +282,10 @@ function App() {
   }
 
   async function sendFriendRequest(receiverId) {
+    await supabase
+      .from("friendships")
+      .delete()
+      .or("and(requester_id.eq." + session.user.id + ",receiver_id.eq." + receiverId + ",status.eq.declined),and(requester_id.eq." + receiverId + ",receiver_id.eq." + session.user.id + ",status.eq.declined)");
     await supabase.from("friendships").insert({ requester_id: session.user.id, receiver_id: receiverId, status: "pending" });
     await notify(receiverId, "friend_request", null);
     await loadEverything();
@@ -627,7 +631,8 @@ function FriendsPage({ profiles, friends, userId, sendFriendRequest, updateFrien
   const filtered = profiles.filter((profile) => {
     const relationship = relationshipByUserId.get(profile.id);
     const isOutgoingPending = relationship?.status === "pending" && relationship.requester_id === userId;
-    return (!relationship || isOutgoingPending) && profile.display_name?.toLowerCase().includes(query.toLowerCase());
+    const isDeclined = relationship?.status === "declined";
+    return (!relationship || isOutgoingPending || isDeclined) && profile.display_name?.toLowerCase().includes(query.toLowerCase());
   });
   const accepted = friends.filter((item) => item.status === "accepted");
   const incoming = friends.filter((item) => item.status === "pending" && item.receiver_id === userId);
