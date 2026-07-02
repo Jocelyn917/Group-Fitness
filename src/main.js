@@ -70,6 +70,15 @@ const challenges = [
   { key: "water-2l", title: "Drink 2L of water", description: "Hydration points are very real points.", points: 15, category: "Hydration" }
 ];
 
+const defaultRankedActivities = [
+  { id: "highest-plank-time", name: "Highest Plank Time", description: "Hold a plank as long as you can.", activity_type: "duration_highest_wins", unit: "min:sec", sort_order: 1 },
+  { id: "most-pushups", name: "Most Pushups", description: "Total pushups in one attempt.", activity_type: "count_highest_wins", unit: "reps", sort_order: 2 },
+  { id: "fastest-1km-run", name: "Fastest 1 km Run", description: "Your fastest one kilometer run.", activity_type: "time_lowest_wins", unit: "min:sec", sort_order: 3 },
+  { id: "longest-wall-sit", name: "Longest Wall Sit", description: "Hold a wall sit as long as possible.", activity_type: "duration_highest_wins", unit: "min:sec", sort_order: 4 },
+  { id: "most-squats", name: "Most Squats", description: "Total squats in one attempt.", activity_type: "count_highest_wins", unit: "reps", sort_order: 5 },
+  { id: "longest-run-distance", name: "Longest Run Distance", description: "Longest run distance logged.", activity_type: "distance_highest_wins", unit: "km", sort_order: 6 }
+];
+
 function formatTime(value) {
   if (!value) return "Not completed";
   return new Intl.DateTimeFormat("en", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(new Date(value));
@@ -127,6 +136,46 @@ function buildChallengeLeaderboard(goals, friends, userId, period) {
   return [...rows.values()].sort((a, b) => b.points - a.points || b.completed - a.completed || a.name.localeCompare(b.name));
 }
 
+function activityHigherWins(activity) {
+  return activity.activity_type !== "time_lowest_wins";
+}
+
+function getBestActivityResults(activity, results) {
+  const byUser = new Map();
+  results.filter((result) => result.activity_id === activity.id).forEach((result) => {
+    const current = byUser.get(result.user_id);
+    const isBetter = !current || (activityHigherWins(activity) ? result.value > current.value : result.value < current.value);
+    if (isBetter) byUser.set(result.user_id, result);
+  });
+  return [...byUser.values()].sort((a, b) => {
+    const score = activityHigherWins(activity) ? b.value - a.value : a.value - b.value;
+    return score || new Date(a.created_at) - new Date(b.created_at);
+  });
+}
+
+function parseActivityResult(activity, rawValue) {
+  const value = rawValue.trim();
+  if (!value) return { error: "Result is required." };
+  if (activity.activity_type === "duration_highest_wins" || activity.activity_type === "time_lowest_wins") {
+    const match = value.match(/^(\d+):([0-5]\d)$/);
+    if (!match) return { error: "Use minutes:seconds, like 2:35 or 10:05." };
+    const minutes = Number(match[1]);
+    const seconds = Number(match[2]);
+    const total = minutes * 60 + seconds;
+    if (total <= 0) return { error: "Result must be greater than zero." };
+    return { value: total, displayValue: minutes + ":" + String(seconds).padStart(2, "0") };
+  }
+  if (activity.activity_type === "count_highest_wins") {
+    if (!/^\d+$/.test(value)) return { error: "Use a positive whole number." };
+    const count = Number(value);
+    if (count <= 0) return { error: "Result must be greater than zero." };
+    return { value: count, displayValue: count + " " + activity.unit };
+  }
+  const distance = Number(value);
+  if (!Number.isFinite(distance) || distance <= 0) return { error: "Use a positive distance." };
+  return { value: distance, displayValue: distance + " " + activity.unit };
+}
+
 function groupGoalsByOwner(goals) {
   return goals.reduce((groups, goal) => {
     const ownerName = goal.profiles?.display_name || "Fitness friend";
@@ -147,6 +196,8 @@ function App() {
   const [profiles, setProfiles] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [badges, setBadges] = useState([]);
+  const [rankedActivities, setRankedActivities] = useState(defaultRankedActivities);
+  const [activityResults, setActivityResults] = useState([]);
   const [loading, setLoading] = useState(Boolean(supabase));
   const [authMode, setAuthMode] = useState("landing");
   const [goalModalOpen, setGoalModalOpen] = useState(false);
@@ -182,7 +233,7 @@ function App() {
     if (!supabase || !userId) return;
     setLoading(true);
     await ensureProfile();
-    await Promise.all([loadGoals(), loadFeed(), loadFriends(), loadProfiles(), loadNotifications(), loadBadges()]);
+    await Promise.all([loadGoals(), loadFeed(), loadFriends(), loadProfiles(), loadNotifications(), loadBadges(), loadRankedActivities(), loadActivityResults()]);
     setLoading(false);
   }
 
@@ -237,6 +288,20 @@ function App() {
   async function loadBadges() {
     const { data } = await supabase.from("user_badges").select("*, badges(name, description, icon)").eq("user_id", session.user.id).order("earned_at", { ascending: false });
     setBadges(data || []);
+  }
+
+  async function loadRankedActivities() {
+    const { data, error } = await supabase.from("ranked_activities").select("*").order("sort_order");
+    if (error) {
+      setRankedActivities(defaultRankedActivities);
+      return;
+    }
+    setRankedActivities(data?.length ? data : defaultRankedActivities);
+  }
+
+  async function loadActivityResults() {
+    const { data, error } = await supabase.from("activity_results").select("*, profiles:user_id(display_name)").order("created_at", { ascending: false });
+    setActivityResults(error ? [] : data || []);
   }
 
   async function signUp(form) {
@@ -307,6 +372,23 @@ function App() {
     if (error) return setToast("Run the latest supabase-schema.sql first, then try the challenge again.");
     setToast("Challenge added as a public goal.");
     await loadEverything();
+  }
+
+  async function submitActivityResult(form) {
+    const activity = rankedActivities.find((item) => item.id === form.activityId);
+    if (!activity) return setToast("Choose a ranked activity.");
+    const parsed = parseActivityResult(activity, form.result);
+    if (parsed.error) return setToast(parsed.error);
+    const { error } = await supabase.from("activity_results").insert({
+      activity_id: activity.id,
+      user_id: session.user.id,
+      value: parsed.value,
+      display_value: parsed.displayValue,
+      notes: form.notes.trim()
+    });
+    if (error) return setToast("Run the Ranked Activities SQL upgrade first, then try again.");
+    setToast("Result submitted to Ranked Activities.");
+    await loadActivityResults();
   }
 
   async function deleteGoal(goal) {
@@ -415,7 +497,7 @@ function App() {
     h(Header, { profile, logout, tab, setTab, unreadCount, darkMode, setDarkMode }),
     tab === "dashboard" ? h(Dashboard, { goals, completed, streak, setGoalModalOpen, setEditingGoal, completeGoal, deleteGoal, feedGoals }) : null,
     tab === "feed" ? h(Feed, { feedGoals, commentsByGoal, loadComments, addComment, deleteComment, toggleLike, userId: session.user.id }) : null,
-    tab === "compete" ? h(CompetePage, { goals, feedGoals, friends, userId: session.user.id, startChallenge, completeGoal }) : null,
+    tab === "compete" ? h(CompetePage, { goals, feedGoals, friends, userId: session.user.id, startChallenge, completeGoal, rankedActivities, activityResults, submitActivityResult }) : null,
     tab === "friends" ? h(FriendsPage, { profiles, friends, userId: session.user.id, sendFriendRequest, updateFriendship, removeFriend }) : null,
     tab === "profile" ? h(ProfilePage, { profile, goals, badges, friends, streak }) : null,
     tab === "notifications" ? h(NotificationsPage, { notifications, markNotificationRead }) : null,
@@ -574,7 +656,7 @@ function LocalDemoApp() {
     h(Header, { profile, logout, tab, setTab, unreadCount, darkMode, setDarkMode }),
     tab === "dashboard" ? h(Dashboard, { goals: myGoals, completed, streak: getCurrentStreak(myGoals), setGoalModalOpen, setEditingGoal, completeGoal, deleteGoal, feedGoals }) : null,
     tab === "feed" ? h(Feed, { feedGoals, commentsByGoal, loadComments: async () => {}, addComment, deleteComment, toggleLike, userId: user.id }) : null,
-    tab === "compete" ? h(CompetePage, { goals: myGoals, feedGoals, friends: [], userId: user.id, startChallenge, completeGoal }) : null,
+    tab === "compete" ? h(CompetePage, { goals: myGoals, feedGoals, friends: [], userId: user.id, startChallenge, completeGoal, rankedActivities: defaultRankedActivities, activityResults: [], submitActivityResult: async () => setToast("Ranked Activity submissions need Supabase so friends can see them.") }) : null,
     tab === "friends" ? h(LocalFriendsPage, { users, currentUser: user }) : null,
     tab === "profile" ? h(ProfilePage, { profile, goals: myGoals, badges: localBadges, friends: [], streak: getCurrentStreak(myGoals) }) : null,
     tab === "notifications" ? h(NotificationsPage, { notifications: notifications.filter((item) => item.user_id === user.id), markNotificationRead }) : null,
@@ -710,8 +792,10 @@ function FeedGoal({ goal, comments, loadComments, addComment, deleteComment, tog
   );
 }
 
-function CompetePage({ goals, feedGoals, friends, userId, startChallenge, completeGoal }) {
+function CompetePage({ goals, feedGoals, friends, userId, startChallenge, completeGoal, rankedActivities = defaultRankedActivities, activityResults = [], submitActivityResult }) {
   const [period, setPeriod] = useState("week");
+  const [selectedActivity, setSelectedActivity] = useState(null);
+  const [resultModalOpen, setResultModalOpen] = useState(false);
   const myOpenChallenges = goals.filter((goal) => goal.challenge_key && !goal.completed);
   const friendIds = friendUserIds(friends, userId);
   const completedChallengeGoals = feedGoals.filter((goal) => goal.completed_at && (goal.challenge_points || 0) > 0 && friendIds.has(goal.owner_id));
@@ -733,6 +817,27 @@ function CompetePage({ goals, feedGoals, friends, userId, startChallenge, comple
             h("button", { disabled: active, onClick: () => startChallenge(challenge) }, active ? "In progress" : "Start")
           );
         })),
+        h("div", { className: "panel ranked-section" },
+          h("div", { className: "section-heading" },
+            h("div", null, h("p", { className: "eyebrow" }, "Ranked Activities"), h("h2", null, "Best results among friends")),
+            h("button", { className: "primary-action", onClick: () => setResultModalOpen(true) }, h(Trophy, { size: 18 }), "Submit Result")
+          ),
+          h("div", { className: "ranked-grid" }, rankedActivities.map((activity) => {
+            const best = getBestActivityResults(activity, activityResults);
+            const top = best[0];
+            const mine = best.find((result) => result.user_id === userId);
+            return h("article", { className: "activity-card", key: activity.id },
+              h("div", null, h("h3", null, activity.name), h("p", null, activity.description)),
+              h("div", { className: "activity-score" },
+                h("span", null, "Current top"),
+                h("strong", null, top ? top.display_value : "No result yet"),
+                h("small", null, top ? top.profiles?.display_name || "Fitness friend" : activity.unit)
+              ),
+              mine ? h("p", { className: "personal-best" }, "Your Best: " + mine.display_value) : h("p", { className: "personal-best muted" }, "Submit your first result"),
+              h("button", { className: "secondary-action", onClick: () => setSelectedActivity(activity) }, "View Rankings")
+            );
+          }))
+        ),
         h("div", { className: "panel" },
           h("div", { className: "section-heading compact" }, h("div", null, h("p", { className: "eyebrow" }, "Your active challenges"), h("h2", null, "Finish for points"))),
           myOpenChallenges.length ? h("div", { className: "goal-list" }, myOpenChallenges.map((goal) => h(ChallengeGoalCard, { key: goal.id, goal, completeGoal }))) : h("p", { className: "muted" }, "Start a challenge above and it will show here.")
@@ -748,8 +853,34 @@ function CompetePage({ goals, feedGoals, friends, userId, startChallenge, comple
           completedChallengeGoals.slice(0, 6).map((goal) => h("article", { className: "activity-item", key: goal.id }, h("div", null, h("strong", null, goal.owner_name || "Friend"), h("span", null, goal.challenge_label || goal.title)), h("strong", null, "+" + (goal.challenge_points || 0))))
         )
       )
-    )
+    ),
+    selectedActivity ? h(ActivityLeaderboardModal, { activity: selectedActivity, results: getBestActivityResults(selectedActivity, activityResults), userId, onClose: () => setSelectedActivity(null) }) : null,
+    resultModalOpen ? h(ActivityResultModal, { activities: rankedActivities, onClose: () => setResultModalOpen(false), onSubmit: async (form) => { await submitActivityResult(form); setResultModalOpen(false); } }) : null
   );
+}
+
+function ActivityLeaderboardModal({ activity, results, userId, onClose }) {
+  return h("div", { className: "modal-backdrop" }, h("div", { className: "goal-modal" },
+    h("div", { className: "composer-title" }, h(Trophy, { size: 19 }), h("span", null, activity.name + " Rankings"), h("button", { type: "button", className: "icon-button", onClick: onClose, "aria-label": "Close" }, h(X, { size: 18 }))),
+    results.length ? h("div", { className: "activity-leaderboard" }, results.map((result, index) => h("article", { className: "leader-row activity-rank-row", key: result.id },
+      h("span", { className: "rank medal-rank" }, index < 3 ? ["1", "2", "3"][index] : index + 1),
+      h("div", null, h("strong", null, (result.profiles?.display_name || "Fitness friend") + (result.user_id === userId ? " (You)" : "")), h("span", null, formatTime(result.created_at))),
+      h("strong", null, result.display_value)
+    ))) : h("div", { className: "empty-state compact" }, h(Trophy, { size: 24 }), h("h3", null, "No rankings yet"), h("p", null, "Submit a result to start this board."))
+  ));
+}
+
+function ActivityResultModal({ activities, onClose, onSubmit }) {
+  const [form, setForm] = useState({ activityId: activities[0]?.id || "", result: "", notes: "" });
+  const activity = activities.find((item) => item.id === form.activityId) || activities[0];
+  function update(key, value) { setForm((current) => ({ ...current, [key]: value })); }
+  return h("div", { className: "modal-backdrop" }, h("form", { className: "goal-modal result-form", onSubmit: (event) => { event.preventDefault(); onSubmit(form); } },
+    h("div", { className: "composer-title" }, h(Trophy, { size: 19 }), h("span", null, "Submit Ranked Result"), h("button", { type: "button", className: "icon-button", onClick: onClose, "aria-label": "Close" }, h(X, { size: 18 }))),
+    h("label", null, "Activity", h("select", { value: form.activityId, onChange: (event) => { update("activityId", event.target.value); update("result", ""); } }, activities.map((item) => h("option", { key: item.id, value: item.id }, item.name)))),
+    h("label", null, "Result", h("div", { className: "result-input-row" }, h("input", { value: form.result, onChange: (event) => update("result", event.target.value), placeholder: activity?.unit === "min:sec" ? "2:35" : activity?.unit === "reps" ? "25" : "3.5", required: true }), h("span", null, activity?.unit || ""))),
+    h("label", null, "Notes", h("textarea", { value: form.notes, onChange: (event) => update("notes", event.target.value), rows: 3, placeholder: "Optional context" })),
+    h("button", { className: "save-button", type: "submit" }, h(Check, { size: 18 }), "Submit result")
+  ));
 }
 
 function ChallengeGoalCard({ goal, completeGoal }) {
